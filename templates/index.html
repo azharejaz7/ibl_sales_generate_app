@@ -43,7 +43,7 @@
                     <div class="row mb-3">
                         <div class="col-md-12 mb-3">
                             <label for="companyName" class="form-label">Select Company</label>
-                            <select class="form-select" id="companyName" required>
+                            <select class="form-select" id="companyName" name="company_name" required>
                                 <option value="" selected disabled>-- Select Company --</option>
                                 <option value="Hussain Traders">Hussain Traders</option>
                                 <option value="Pharma Solution">Pharma Solution</option>
@@ -98,27 +98,51 @@
             defaultDate: "29-Mar-2025"
         });
 
-        // Load suppliers - initial load
-        fetch('/get_suppliers')
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    const supplierGrid = document.getElementById('supplierGrid');
-                    supplierGrid.innerHTML = '';
-                    data.suppliers.forEach(supplier => {
-                        const div = document.createElement('div');
-                        div.className = 'form-check';
-                        div.innerHTML = `
-                            <input class="form-check-input" type="checkbox" value="${supplier.id}" id="supplier${supplier.id}">
-                            <label class="form-check-label" for="supplier${supplier.id}">
-                                ${supplier.name}
-                            </label>
-                        `;
-                        supplierGrid.appendChild(div);
-                    });
-                }
-            })
-            .catch(error => console.error('Error loading suppliers:', error));
+        // Function to load suppliers based on company
+        function loadSuppliers(companyName) {
+            if (!companyName) {
+                document.getElementById('supplierGrid').innerHTML = '<div class="alert alert-warning">Please select a company first</div>';
+                return;
+            }
+            
+            document.getElementById('supplierGrid').innerHTML = '<div class="text-center"><div class="spinner-border spinner-border-sm" role="status"></div> Loading suppliers...</div>';
+            
+            fetch(`/get_suppliers?company_name=${encodeURIComponent(companyName)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const supplierGrid = document.getElementById('supplierGrid');
+                        supplierGrid.innerHTML = '';
+                        
+                        if (data.suppliers && data.suppliers.length > 0) {
+                            data.suppliers.forEach(supplier => {
+                                const div = document.createElement('div');
+                                div.className = 'form-check';
+                                div.innerHTML = `
+                                    <input class="form-check-input" type="checkbox" value="${supplier.id}" id="supplier${supplier.id}">
+                                    <label class="form-check-label" for="supplier${supplier.id}">
+                                        ${supplier.name}
+                                    </label>
+                                `;
+                                supplierGrid.appendChild(div);
+                            });
+                        } else {
+                            supplierGrid.innerHTML = '<div class="alert alert-warning">No suppliers found for this company</div>';
+                        }
+                    } else {
+                        supplierGrid.innerHTML = '<div class="alert alert-danger">Error loading suppliers: ' + (data.error || 'Unknown error') + '</div>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading suppliers:', error);
+                    document.getElementById('supplierGrid').innerHTML = '<div class="alert alert-danger">Error connecting to server</div>';
+                });
+        }
+
+        // Company selection change handler
+        document.getElementById('companyName').addEventListener('change', function() {
+            loadSuppliers(this.value);
+        });
 
         // Handle form submission
         document.getElementById('dataForm').addEventListener('submit', function(e) {
@@ -164,7 +188,7 @@
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `export_${companyName.replace(' ', '_')}_${new Date().toISOString().slice(0,19).replace(/[:-]/g, '')}.xlsx`;
+                a.download = `export_${new Date().toISOString().slice(0,19).replace(/[:-]/g, '')}.xlsx`;
                 document.body.appendChild(a);
                 a.click();
                 window.URL.revokeObjectURL(url);
