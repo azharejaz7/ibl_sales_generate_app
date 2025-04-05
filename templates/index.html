@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IBL Sales Data Generator</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" rel="stylesheet">
+    <style>
+        .supplier-grid {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #dee2e6;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .loading {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.8);
+            z-index: 1000;
+        }
+        .loading-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h2 class="mb-4">IBL Sales Data Generator</h2>
+        
+        <div class="card">
+            <div class="card-body">
+                <form id="dataForm">
+                    <div class="row mb-3">
+                        <div class="col-md-12 mb-3">
+                            <label for="companyName" class="form-label">Select Company</label>
+                            <select class="form-select" id="companyName" required>
+                                <option value="" selected disabled>-- Select Company --</option>
+                                <option value="Hussain Traders">Hussain Traders</option>
+                                <option value="Pharma Solution">Pharma Solution</option>
+                            </select>
+                        </div>
+                    </div>
+                  
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="startDate" class="form-label">Start Date</label>
+                            <input type="text" class="form-control" id="startDate" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="endDate" class="form-label">End Date</label>
+                            <input type="text" class="form-control" id="endDate" required>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Suppliers</label>
+                        <div class="supplier-grid" id="supplierGrid">
+                            <!-- Suppliers will be loaded here -->
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Generate Combined Excel Report</button>
+                    <p class="text-muted mt-2">This will generate a single Excel file with Sales and Stocks data in separate sheets.</p>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="loading" id="loading">
+        <div class="loading-content">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Generating Excel file...</p>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script>
+        // Initialize date pickers
+        flatpickr("#startDate", {
+            dateFormat: "d-M-Y",
+            defaultDate: "01-Mar-2025"
+        });
+        flatpickr("#endDate", {
+            dateFormat: "d-M-Y",
+            defaultDate: "29-Mar-2025"
+        });
+
+        // Load suppliers - initial load
+        fetch('/get_suppliers')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const supplierGrid = document.getElementById('supplierGrid');
+                    supplierGrid.innerHTML = '';
+                    data.suppliers.forEach(supplier => {
+                        const div = document.createElement('div');
+                        div.className = 'form-check';
+                        div.innerHTML = `
+                            <input class="form-check-input" type="checkbox" value="${supplier.id}" id="supplier${supplier.id}">
+                            <label class="form-check-label" for="supplier${supplier.id}">
+                                ${supplier.name}
+                            </label>
+                        `;
+                        supplierGrid.appendChild(div);
+                    });
+                }
+            })
+            .catch(error => console.error('Error loading suppliers:', error));
+
+        // Handle form submission
+        document.getElementById('dataForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const companyName = document.getElementById('companyName').value;
+            if (!companyName) {
+                alert('Please select a company');
+                return;
+            }
+            
+            const selectedSuppliers = Array.from(document.querySelectorAll('input[type="checkbox"]:checked'))
+                .map(checkbox => checkbox.value);
+            
+            if (selectedSuppliers.length === 0) {
+                alert('Please select at least one supplier');
+                return;
+            }
+
+            const formData = {
+                start_date: document.getElementById('startDate').value,
+                end_date: document.getElementById('endDate').value,
+                company_name: companyName,
+                suppliers: selectedSuppliers
+            };
+
+            document.getElementById('loading').style.display = 'block';
+
+            fetch('/get_data', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(formData)
+            })
+            .then(response => {
+                if (response.ok) {
+                    return response.blob();
+                }
+                throw new Error('Network response was not ok');
+            })
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `export_${companyName.replace(' ', '_')}_${new Date().toISOString().slice(0,19).replace(/[:-]/g, '')}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                a.remove();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error generating Excel file. Please try again.');
+            })
+            .finally(() => {
+                document.getElementById('loading').style.display = 'none';
+            });
+        });
+    </script>
+</body>
+</html> 
