@@ -78,10 +78,12 @@ def get_data():
         # Dynamically get the correct engine (database connection)
         engine = get_engine(company_name)
 
-        # Create a unique file name with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_company_name = company_name.replace(' ', '_')
-        file_name = f"export_{safe_company_name}_{timestamp}.xlsx"
+        # Create the filename based on company selection
+        if company_name == "Pharma Solution":
+            file_name = f"IBLHC_9200000007.xlsx"
+        else:  # Default to Hussain Traders
+            file_name = f"IBLHC_9200000006.xlsx"
+            
         file_path = os.path.join(os.getcwd(), file_name)
 
         # Query for Sales data (Form 1)
