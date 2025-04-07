@@ -29,6 +29,58 @@ def get_engine(company_name):
 def index():
     return render_template('index.html')
 
+
+@app.route('/get_product_range')
+def get_product_range():
+    try:
+        company_name = request.args.get("company_name")
+        
+        if not company_name:
+            return jsonify({"success": False, "error": "Missing company name"})
+            
+        engine = get_engine(company_name)
+
+        with engine.connect() as conn:
+            # Updated queries to get correct first and last product
+            first_query = text("""
+                SELECT TOP 1 
+                    productId, 
+                    ProductPack
+                FROM Product 
+                ORDER BY productId asc
+            """)
+            
+            last_query = text("""
+                SELECT TOP 1 
+                    productId, 
+                    ProductPack
+                FROM Product 
+                ORDER BY productId DESC
+            """)
+
+            first = conn.execute(first_query).fetchone()
+            last = conn.execute(last_query).fetchone()
+
+            if not first or not last:
+                return jsonify({
+                    "success": False,
+                    "error": "No products found in the database"
+                })
+
+        return jsonify({
+            "success": True,
+            "first_id": first[0] if first else None,
+            "first_name": f"{first[1]}" if first else None,
+            "last_id": last[0] if last else None,
+            "last_name": f"{last[1]}" if last else None
+        })
+
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({"success": False, "error": str(e)})
+    
+
 @app.route('/get_suppliers')
 def get_suppliers():
     try:
@@ -56,9 +108,13 @@ def get_data():
         start_date = data.get('start_date')
         end_date = data.get('end_date')
         selected_suppliers = data.get('suppliers', [])
-        company_name = data.get('company_name')  # Get selected company from form data
+        company_name = data.get('company_name')
+        start_product = data.get('start_product', '0001')
+        end_product = data.get('end_product', '8600')
 
-        # Define company-specific codes
+        if not all([start_date, end_date, company_name, selected_suppliers]):
+            return jsonify({"success": False, "error": "Missing required parameters"})
+
         company_codes = {
             "Hussain Traders": {
                 "RD_code": "9200000006",
@@ -72,59 +128,51 @@ def get_data():
             }
         }
         
-        # Get the specific codes for the selected company
-        codes = company_codes.get(company_name, company_codes["Hussain Traders"])
+        codes = company_codes.get(company_name)
+        if not codes:
+            return jsonify({"success": False, "error": "Invalid company selected"})
 
-        # Dynamically get the correct engine (database connection)
         engine = get_engine(company_name)
-
-        # Create the filename based on company selection
-        if company_name == "Pharma Solution":
-            file_name = f"IBLHC_9200000007.xlsx"
-        else:  # Default to Hussain Traders
-            file_name = f"IBLHC_9200000006.xlsx"
-            
+        file_name = f"IBLHC_{codes['RD_code']}.xlsx"
         file_path = os.path.join(os.getcwd(), file_name)
 
-        # Query for Sales data (Form 1)
+        # Updated Sales query with better error handling
         query_sales = f"""
-        SELECT RIGHT('00' + CAST(DOCUMENTNO AS VARCHAR(11)),7) Franchise_Customer_OrderNo,
-        REPLACE(CONVERT(CHAR(10), CAST(DOCDATE AS DATETIME), 101), '-', '/') Franchise_Customer_Invoice_Date,
-        RIGHT('00' + CAST(DOCUMENTNO AS VARCHAR(11)),7) Franchise_Customer_Invoice_Number,
-        right(CustType, len(CustType)-3 ) Channel,
-        '{codes["Franchise_Code"]}' as Franchise_Code,
-        REPLACE(CUSTID, '-', '') Franchise_Customer_Number,
-        REPLACE(CUSTID, '-', '') IBL_Customer_Number,
-        Party as RD_Customer_Name,
-        Party as IBL_Customer_Name,
-        Town as Customer_Address,
-        manufacturerCode as Franchise_Item_Code,
-        manufacturerCode as IBL_Item_Code,
-        ProductPack as Franchise_Item_Description,
-        productpack as IBL_Item_Description,
-        Qty Quantity_Sold,
-        Cast(((Rate * qty)-(Rate*(ISNULL(DISC,0)/100)) * qty) as decimal(12,2)) Gross_Amount,
-        REASON,
-        CASE WHEN ISNULL(Free,0)=0 THEN ISNULL(Bonus,0) ELSE ISNULL(Free,0) END FOC,
-        BATCHNO,
-        Cast(((Rate)-(Rate*(ISNULL(DISC,0)/100))) as decimal(12,2)) PRICE,
-        0 as BON_QTY,
-        cast((ISNULL(Rate,0)*(ISNULL(DISC,0)/100) * qty) as decimal(12,2)) DISCOUNTAMT,
-        Cast(((Rate * qty)-(Rate*(ISNULL(DISC,0)/100)) * qty) as decimal(12,2)) NET_AMT,
-        0 as DISCOUNTED_RATE,
-        replace(TownId, '-', '') as Brick_Code,
-        Town as Brick_Name
+        SELECT 
+            RIGHT('00'+ISNULL(CAST(DOCUMENTNO AS VARCHAR(11)),''),7) AS Franchise_Customer_OrderNo,
+            REPLACE(CONVERT(CHAR(10), CAST(DOCDATE AS DATETIME), 101), '-', '/') Franchise_Customer_Invoice_Date,
+            RIGHT('00'+ISNULL(CAST(DOCUMENTNO AS VARCHAR(11)),''),7) AS Franchise_Customer_Invoice_Number,
+            RIGHT(ISNULL(CustType, ''), CASE WHEN LEN(ISNULL(CustType, '')) > 3 THEN LEN(CustType) - 3 ELSE 0 END) AS Channel,
+            '{codes["Franchise_Code"]}' as Franchise_Code,
+            REPLACE(CUSTID, '-', '') Franchise_Customer_Number,
+            REPLACE(CUSTID, '-', '') IBL_Customer_Number,
+            Party as RD_Customer_Name,
+            Party as IBL_Customer_Name,
+            Town as Customer_Address,
+            manufacturerCode as Franchise_Item_Code,
+            manufacturerCode as IBL_Item_Code,
+            ProductPack as Franchise_Item_Description,
+            productpack as IBL_Item_Description,
+            Qty Quantity_Sold,
+            Cast(((Rate * qty)-(Rate*(ISNULL(DISC,0)/100)) * qty) as decimal(12,2)) Gross_Amount,
+            REASON,
+            CASE WHEN ISNULL(Free,0)=0 THEN ISNULL(Bonus,0) ELSE ISNULL(Free,0) END FOC,
+            BATCHNO,
+            Cast(((Rate)-(Rate*(ISNULL(DISC,0)/100))) as decimal(12,2)) PRICE,
+            0 as BON_QTY,
+            cast((ISNULL(Rate,0)*(ISNULL(DISC,0)/100) * qty) as decimal(12,2)) DISCOUNTAMT,
+            Cast(((Rate * qty)-(Rate*(ISNULL(DISC,0)/100)) * qty) as decimal(12,2)) NET_AMT,
+            0 as DISCOUNTED_RATE,
+            replace(TownId, '-', '') as Brick_Code,
+            Town as Brick_Name
         FROM [dbo].[PAP_SI_ALL](:start_date, :end_date, N'SR', 'DCO') AS TR
-        WHERE LEFT(productPackId, 4) BETWEEN '0001' AND '8600'
+        WHERE LEFT(productPackId,4) BETWEEN :start_product AND :end_product
         AND SupplierId IN :suppliers
         AND ProductPack not like '%f.o.c %'
         ORDER BY DocType, DOCUMENTNO
         """
         
-        # Replace suppliers in query
-        query_sales = query_sales.replace(":suppliers", f"({','.join([f"'{s}'" for s in selected_suppliers])})")
-
-        # Query for Stock data (Form 2)
+        # Updated Stock query with better error handling
         query_stocks = f"""
         SELECT 
             '{codes["RD_code"]}' AS RD_code,
@@ -156,10 +204,10 @@ def get_data():
                 expiry,
                 AVG(avgRate) AS avgRate,
                 SUM(opg) AS opg
-            FROM UDF_PAM_OPG_IBL(:end_date, '0001', '8600', 0) 
+            FROM UDF_PAM_OPG_IBL(:end_date, :start_product, :end_product, 0) 
             GROUP BY LEFT(productId, 4), packId, batchNo, expiry
         ) OPG
-        LEFT JOIN Product 
+        INNER JOIN Product 
             ON Product.productPackId = CAST(OPG.productId AS VARCHAR(6)) + CAST(OPG.packId AS VARCHAR(6)) 
         LEFT JOIN (
             SELECT 
@@ -187,83 +235,74 @@ def get_data():
             (CAST(OPG.opg AS INT) + ISNULL(PAE_SITR_Temp.QtyIn, 0))
         """
         
-        # Replace suppliers in query
-        query_stocks = query_stocks.replace(":suppliers", f"({','.join([f"'{s}'" for s in selected_suppliers])})")
+        # Replace suppliers in queries
+        suppliers_str = f"({','.join([f"'{s}'" for s in selected_suppliers])})"
+        query_sales = query_sales.replace(":suppliers", suppliers_str)
+        query_stocks = query_stocks.replace(":suppliers", suppliers_str)
 
-        try:
-            # Execute both queries and save to Excel
-            with engine.connect() as conn:
-                try:
-                    # Fetch and process Sales data
-                    result_sales = conn.execute(
-                        text(query_sales),
-                        {"start_date": start_date, "end_date": end_date}
-                    )
-                    rows_sales = result_sales.fetchall()
-                    columns_sales = result_sales.keys()
-                    df_sales = pd.DataFrame(rows_sales, columns=columns_sales)
-                    df_sales.columns = [col.replace("_", " ") for col in df_sales.columns]
-                except Exception as e:
-                    print(f"Error fetching sales data: {e}")
-                    df_sales = pd.DataFrame()  # Create empty DataFrame if query fails
+        with engine.connect() as conn:
+            # Execute queries with proper error handling
+            try:
+                result_sales = conn.execute(
+                    text(query_sales),
+                    {
+                        "start_date": start_date,
+                        "end_date": end_date,
+                        "start_product": start_product,
+                        "end_product": end_product
+                    }
+                )
+                df_sales = pd.DataFrame(result_sales.fetchall(), columns=result_sales.keys())
+                df_sales.columns = [col.replace("_", " ") for col in df_sales.columns]
+            except Exception as e:
+                print(f"Error fetching sales data: {e}")
+                df_sales = pd.DataFrame()
 
-                try:
-                    # Fetch and process Stocks data
-                    result_stocks = conn.execute(
-                        text(query_stocks),
-                        {"end_date": end_date}
-                    )
-                    rows_stocks = result_stocks.fetchall()
-                    columns_stocks = result_stocks.keys()
-                    df_stocks = pd.DataFrame(rows_stocks, columns=columns_stocks)
-                    df_stocks.columns = [col.replace("_", " ") for col in df_stocks.columns]
-                except Exception as e:
-                    print(f"Error fetching stocks data: {e}")
-                    df_stocks = pd.DataFrame()  # Create empty DataFrame if query fails
+            try:
+                result_stocks = conn.execute(
+                    text(query_stocks),
+                    {
+                        "end_date": end_date,
+                        "start_product": start_product,
+                        "end_product": end_product
+                    }
+                )
+                df_stocks = pd.DataFrame(result_stocks.fetchall(), columns=result_stocks.keys())
+                df_stocks.columns = [col.replace("_", " ") for col in df_stocks.columns]
+            except Exception as e:
+                print(f"Error fetching stock data: {e}")
+                df_stocks = pd.DataFrame()
 
-                # If both dataframes are empty, raise an error
-                if df_sales.empty and df_stocks.empty:
-                    raise ValueError(f"No data returned for {company_name}")
+            # Create Excel writer with proper error handling
+            try:
+                with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
+                    if not df_sales.empty:
+                        df_sales.to_excel(writer, sheet_name='Sales', index=False)
+                    else:
+                        pd.DataFrame({'Message': ['No sales data available for the selected criteria']}).to_excel(
+                            writer, sheet_name='Sales', index=False
+                        )
 
-                # Create ExcelWriter with explicit file path
-                writer = pd.ExcelWriter(file_path, engine='openpyxl')
-                
-                # Write both Sales and Stocks to Excel
-                if not df_sales.empty:
-                    df_sales.to_excel(writer, index=False, sheet_name='Sales')
-                else:
-                    # Create an empty Sales sheet with a message
-                    empty_df = pd.DataFrame(['No sales data available'])
-                    empty_df.to_excel(writer, index=False, sheet_name='Sales')
-                
-                if not df_stocks.empty:
-                    df_stocks.to_excel(writer, index=False, sheet_name='Stocks')
-                else:
-                    # Create an empty Stocks sheet with a message
-                    empty_df = pd.DataFrame(['No stocks data available'])
-                    empty_df.to_excel(writer, index=False, sheet_name='Stocks')
-                
-                # Save and close the Excel file
-                writer.close()
+                    if not df_stocks.empty:
+                        df_stocks.to_excel(writer, sheet_name='Stocks', index=False)
+                    else:
+                        pd.DataFrame({'Message': ['No stock data available for the selected criteria']}).to_excel(
+                            writer, sheet_name='Stocks', index=False
+                        )
 
-                if not os.path.exists(file_path) or os.path.getsize(file_path) < 100:
-                    raise ValueError(f"Excel file was not generated properly: {file_path}")
-
-                # Send the generated file back to the user
                 return send_file(
                     file_path,
                     as_attachment=True,
-                    download_name=os.path.basename(file_path),
+                    download_name=file_name,
                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                 )
-        except Exception as e:
-            print(f"Error during Excel generation: {traceback.format_exc()}")
-            return jsonify({"success": False, "error": f"Excel generation error: {str(e)}"})
+            except Exception as e:
+                print(f"Error creating Excel file: {e}")
+                return jsonify({"success": False, "error": "Error creating Excel file"})
 
     except Exception as e:
-        import traceback
-        print(f"General error: {traceback.format_exc()}")
+        print(f"General error: {e}")
         return jsonify({"success": False, "error": str(e)})
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True , host='0.0.0.0',port=5000)

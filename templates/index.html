@@ -43,14 +43,14 @@
                     <div class="row mb-3">
                         <div class="col-md-12 mb-3">
                             <label for="companyName" class="form-label">Select Company</label>
-                            <select class="form-select" id="companyName" name="company_name" required>
+                            <select class="form-select" id="companyName" required>
                                 <option value="" selected disabled>-- Select Company --</option>
                                 <option value="Hussain Traders">Hussain Traders</option>
                                 <option value="Pharma Solution">Pharma Solution</option>
                             </select>
                         </div>
                     </div>
-                  
+                    
                     <div class="row mb-3">
                         <div class="col-md-6">
                             <label for="startDate" class="form-label">Start Date</label>
@@ -60,6 +60,21 @@
                             <label for="endDate" class="form-label">End Date</label>
                             <input type="text" class="form-control" id="endDate" required>
                         </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="startProduct" class="form-label">Start Product</label>
+                            <input type="text" class="form-control" id="startProduct" placeholder="0001" >
+                        </div>
+                        <div class="col-md-6">
+                            <label for="endProduct" class="form-label">End Product</label>
+                            <input type="text" class="form-control" id="endProduct" placeholder="8600" >
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <button type="button" id="loadProductRange" class="btn btn-outline-secondary btn-sm">Load Product Range</button>
+                        <span id="productRangeInfo" class="ms-2 text-muted small"></span>
                     </div>
 
                     <div class="mb-3">
@@ -139,9 +154,56 @@
                 });
         }
 
+        // Function to load product range based on company
+        function loadProductRange(companyName) {
+            if (!companyName) {
+                alert('Please select a company first');
+                return;
+            }
+            
+            document.getElementById('productRangeInfo').textContent = 'Loading product range...';
+            document.getElementById('startProduct').value = '';
+            document.getElementById('endProduct').value = '';
+            
+            fetch(`/get_product_range?company_name=${encodeURIComponent(companyName)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('startProduct').value = data.first_id || '';
+                        document.getElementById('endProduct').value = data.last_id || '';
+                        
+                        document.getElementById('productRangeInfo').textContent = 
+                            `Range: ${data.first_name || 'Unknown'} to ${data.last_name || 'Unknown'}`;
+                    } else {
+                        document.getElementById('productRangeInfo').textContent = 
+                            'Error: ' + (data.error || 'Could not load product range');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading product range:', error);
+                    document.getElementById('productRangeInfo').textContent = 'Connection error';
+                });
+        }
+
         // Company selection change handler
         document.getElementById('companyName').addEventListener('change', function() {
-            loadSuppliers(this.value);
+            const companyName = this.value;
+            loadSuppliers(companyName);
+            
+            // Automatically load product range when company is selected
+            if (companyName) {
+                loadProductRange(companyName);
+            } else {
+                document.getElementById('startProduct').value = '';
+                document.getElementById('endProduct').value = '';
+                document.getElementById('productRangeInfo').textContent = '';
+            }
+        });
+
+        // Load product range button click handler
+        document.getElementById('loadProductRange').addEventListener('click', function() {
+            const companyName = document.getElementById('companyName').value;
+            loadProductRange(companyName);
         });
 
         // Handle form submission
@@ -166,7 +228,9 @@
                 start_date: document.getElementById('startDate').value,
                 end_date: document.getElementById('endDate').value,
                 company_name: companyName,
-                suppliers: selectedSuppliers
+                suppliers: selectedSuppliers,
+                start_product: document.getElementById('startProduct').value || '0001',
+                end_product: document.getElementById('endProduct').value || '8600'
             };
 
             document.getElementById('loading').style.display = 'block';
@@ -188,7 +252,7 @@
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `export_${new Date().toISOString().slice(0,19).replace(/[:-]/g, '')}.xlsx`;
+                a.download = `IBLHC_${companyName === 'Pharma Solution' ? '9200000007' : '9200000006'}.xlsx`;
                 document.body.appendChild(a);
                 a.click();
                 window.URL.revokeObjectURL(url);
