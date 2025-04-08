@@ -106,11 +106,11 @@
         // Initialize date pickers
         flatpickr("#startDate", {
             dateFormat: "d-M-Y",
-            defaultDate: "01-Mar-2025"
+            defaultDate: new Date(2025, 3, 1), // April 1st, 2025
         });
         flatpickr("#endDate", {
             dateFormat: "d-M-Y",
-            defaultDate: "29-Mar-2025"
+            defaultDate: "today"
         });
 
         // Function to load suppliers based on company
