@@ -1,10 +1,13 @@
 from flask import Flask, render_template, request, jsonify, send_file
+from openpyxl import load_workbook
 from sqlalchemy import create_engine, text
 from urllib.parse import quote_plus
 import pandas as pd
 from datetime import datetime
 import os
 from dotenv import load_dotenv
+from openpyxl.utils import get_column_letter
+from openpyxl.styles import Font, Alignment, PatternFill,Border, Side
 
 app = Flask(__name__)
 load_dotenv()
@@ -138,6 +141,8 @@ def get_data():
         # Create filename based on format and company
         if report_format == "Hudson":
             file_name = f"Hudson_{company_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        elif report_format == f"Chiesi":
+            file_name = f"Chiesi_{company_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"      
         else:  # IBL format
             file_name = f"IBLHC_{codes['RD_code']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
             
@@ -226,6 +231,108 @@ def get_data():
                 except Exception as e:
                     print(f"Error fetching Hudson data: {e}")
                     return jsonify({"success": False, "error": "Error fetching Hudson data"})
+          # chiesi Format Query      
+        if report_format == "Chiesi":
+            # Hudson format query
+            query_chiesi = f"""
+            SELECT 
+                DATENAME(MONTH, docdate) as MONTH,
+                REPLACE(CUSTID, '-', '') AS Customer_Code,
+                REPLACE(TownId, '-', '') AS Brick_Code,
+                Town AS Customer_Type,
+                ProductPack AS PRODUCT_NAME,
+                Party INSTITUTION_NAME,
+                RIGHT('00' + CAST(DOCUMENTNO AS VARCHAR(11)), 7) AS INVOICE_NO,
+                CONVERT(varchar,docdate,103) as Date,
+                Qty,
+                CAST(ISNULL(Rate, 0) AS DECIMAL(12,2)) AS TP,
+                'QUOTATION' as Remarks,
+                REASON Status
+
+            FROM 
+                [dbo].[PAP_SI_ALL](:start_date, :end_date, N'SR', 'DCO') AS TR
+            WHERE  
+                LEFT(productPackId, 4) BETWEEN :start_product AND :end_product
+                AND SupplierId IN :suppliers
+            ORDER BY 
+                DocType,
+                DOCUMENTNO
+            """
+            
+            query_chiesi = query_chiesi.replace(":suppliers", suppliers_str)
+            
+            with engine.connect() as conn:
+                try:
+                    result_chiesi = conn.execute(
+                        text(query_chiesi),
+                        {
+                            "start_date": start_date,
+                            "end_date": end_date,
+                            "start_product": start_product,
+                            "end_product": end_product
+                        }
+                    )
+                    thin_border = Border(
+                        left=Side(style='thin'),
+                        right=Side(style='thin'),
+                        top=Side(style='thin'),
+                        bottom=Side(style='thin')
+                    )
+                    data_font = Font(name='Arial',size=12,bold=True)
+
+                    df_chiesi = pd.DataFrame(result_chiesi.fetchall(), columns=result_chiesi.keys())
+                    df_chiesi.columns = [col.replace("_", " ") for col in df_chiesi.columns]
+                    
+                    # Create Excel file with Hudson format
+                    with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
+                        if not df_chiesi.empty:
+                            df_chiesi.to_excel(writer, sheet_name='Sales', index=False,startrow=1)
+                        else:
+                            pd.DataFrame({'Message': ['No sales data available for the selected criteria']}).to_excel(
+                                writer, sheet_name='Sales', index=False
+                            )
+                    wb = load_workbook(file_path)
+                    ws = wb['Sales']
+
+                    # Merge first 11 columns in the first row
+                    end_col_letter = get_column_letter(12)  # Column 'K' for 11 columns
+                    ws.merge_cells(f'A1:{end_col_letter}1')
+
+                    # Set the heading text and center it
+                    ws['A1'] = f"{company_name} SALES STATEMENT FROM {start_date} TO {end_date}".upper()
+                    ws['A1'].font = Font(name='Andalus', size=22, bold=True, color='000000')
+                    ws['A1'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws['A1'].fill = PatternFill(fill_type='solid', fgColor='FFFFFF')
+                    ws.row_dimensions[1].height = 35
+
+                    # Add border to merged range
+                   
+
+                    for col in range(1, 12):  # A to K
+                        ws.cell(row=1, column=col).border = thin_border
+
+        # Loop through all rows and columns with data to apply borders
+                    for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
+                        for cell in row:
+                          # Only apply border if the cell has data
+                             cell.border = thin_border
+                             cell.font = data_font
+
+
+                                        # Save the workbook with the changes
+                    wb.save(file_path)
+                    
+                    return send_file(
+                        file_path,
+                        as_attachment=True,
+                        download_name=file_name,
+                        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                    )
+                
+                except Exception as e:
+                    print(f"Error fetching Hudson data: {e}")
+                    return jsonify({"success": False, "error": "Error fetching Hudson data"})
+
         else:
             # IBL format queries (existing code)
             query_sales = f"""

@@ -57,6 +57,7 @@
                             <select class="form-select" id="reportFormat" required>
                                 <option value="IBL" selected>IBL Format (Sales & Stocks)</option>
                                 <option value="Hudson">Hudson Format (Sales Only)</option>
+                                <option value="Chiesi">Chiesi Format (Sales Only)</option>
                             </select>
                         </div>
                     </div>
@@ -271,7 +272,9 @@
                 a.href = url;
                 a.download = formData.report_format === 'Hudson' 
                     ? `Hudson_${companyName.replace(' ', '_')}.xlsx`
-                    : `IBLHC_${companyName === 'Pharma Solution' ? '9200000007' : '9200000006'}.xlsx`;
+                    : (formData.report_format === 'Chiesi' 
+                    ? `CHIESI_${companyName.replace(' ','_')}_from_${formData.start_date}_to_${formData.end_date}.xlsx`
+                    : `IBLHC_${companyName === 'Pharma Solution' ? '9200000007' : '9200000006'}.xlsx`);
                 document.body.appendChild(a);
                 a.click();
                 window.URL.revokeObjectURL(url);
