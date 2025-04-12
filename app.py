@@ -8,8 +8,21 @@ import os
 from dotenv import load_dotenv
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Font, Alignment, PatternFill,Border, Side
+import threading
+import webbrowser
+import sys
 
-app = Flask(__name__)
+
+def resource_path(relative_path):
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
+app = Flask(__name__,
+            template_folder=resource_path("templates"),
+            static_folder=resource_path("static"))
 load_dotenv()
 
 # Password for DB access
@@ -32,6 +45,8 @@ def get_engine(company_name):
 def index():
     return render_template('index.html')
 
+def open_browser():
+    webbrowser.open_new("http://127.0.0.1:5000")
 
 @app.route('/get_product_range')
 def get_product_range():
@@ -500,4 +515,5 @@ def get_data():
         return jsonify({"success": False, "error": str(e)})
 
 if __name__ == '__main__':
+    threading.Timer(1.5, open_browser).start()
     app.run(debug=True , host='0.0.0.0',port=5000)
